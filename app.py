@@ -6,7 +6,6 @@ import plotly.graph_objects as go
 from datetime import datetime
 import yfinance as yf
 import ssl
-import time
 
 # ══════════════════════════════════════════
 # Mac OS SSL 인증서 우회
@@ -39,7 +38,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 🔥 "1억 6,000만원" 형식으로 깔끔하게 보여주는 핵심 함수
+# "1억 6,000만원" 형식으로 보여주는 함수
 def format_krw(amount):
     if amount == 0: return "0원"
     is_negative = amount < 0
@@ -204,7 +203,7 @@ if menu == "📊 대시보드":
             </div>
             """, unsafe_allow_html=True)
             
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.write("") # 화면 충돌 방지용 여백
 
     if assets['total'] > 0:
         df_assets = pd.DataFrame({"자산군": ["부동산", "현금", "주식"], "금액": [assets['re'], assets['ca'], assets['stk']]})
@@ -219,13 +218,23 @@ if menu == "📊 대시보드":
 elif menu == "🗓️ 월간 현금흐름 (시트)":
     current_year = datetime.now().year
     st.title(f"🗓️ {current_year}년 저축 및 지출 계획표")
+    
+    with st.expander("📸 토스/은행 캡쳐 이미지로 자동 입력하기 (AI Vision)", expanded=False):
+        st.info("💡 토스나 은행 앱의 지출 내역 캡쳐본을 올리면, AI가 숫자를 판독하여 아래 표에 자동 분류해 줍니다.")
+        uploaded_file = st.file_uploader("이미지 파일 업로드 (JPG, PNG)", type=["png", "jpg", "jpeg"])
+        if uploaded_file is not None:
+            col1, col2 = st.columns([1, 2])
+            with col1: st.image(uploaded_file, caption="업로드된 캡쳐본", use_column_width=True)
+            with col2:
+                st.success("판독 대기중! (현재는 시뮬레이션 UI입니다)")
+                st.warning("🚧 실제 작동을 위해서는 OpenAI API Key (GPT-4o Vision) 연동 코드가 필요합니다.")
+
     st.info("💡 셀에 금액을 입력하고 엔터를 치면 천단위 콤마(,)가 자동으로 적용되며 저장됩니다.")
 
     df_monthly = pd.DataFrame(data["spreadsheet"]["monthly"])
     df_monthly["수입+추가"] = df_monthly["수입"] + df_monthly["추가 수입"]
     df_monthly["저축률(%)"] = (df_monthly["저축"] / df_monthly["수입+추가"] * 100).fillna(0).round(1)
     
-    # 천단위 콤마 자동 적용
     m_config = {
         "수입": st.column_config.NumberColumn(step=10000),
         "저축": st.column_config.NumberColumn(step=10000),
@@ -236,7 +245,12 @@ elif menu == "🗓️ 월간 현금흐름 (시트)":
     edited_monthly = st.data_editor(df_monthly[["월", "수입", "저축", "저축률(%)", "추가 수입", "메모(설,상여 등)"]], use_container_width=True, disabled=["월", "저축률(%)"], hide_index=True, column_config=m_config)
     
     new_monthly = [{"월": r["월"], "수입": int(r["수입"]) if pd.notna(r["수입"]) else 0, "저축": int(r["저축"]) if pd.notna(r["저축"]) else 0, "추가 수입": int(r["추가 수입"]) if pd.notna(r["추가 수입"]) else 0, "메모(설,상여 등)": str(r["메모(설,상여 등)"]) if pd.notna(r["메모(설,상여 등)"]) else ""} for _, r in edited_monthly.iterrows()]
-    if data["spreadsheet"]["monthly"] != new_monthly: data["spreadsheet"]["monthly"] = new_monthly; save_data(user, data); st.rerun()
+    
+    # 🔥 에러 방지: st.toast 삭제하고 st.rerun()만 안전하게 호출
+    if data["spreadsheet"]["monthly"] != new_monthly: 
+        data["spreadsheet"]["monthly"] = new_monthly
+        save_data(user, data)
+        st.rerun()
 
     t_inc, t_sav, t_add = edited_monthly["수입"].sum(), edited_monthly["저축"].sum(), edited_monthly["추가 수입"].sum()
     st.markdown(f"**🔹 합계 ➔ 수입:** {t_inc:,.0f}원 | **저축:** {t_sav:,.0f}원 | **추가수입:** {t_add:,.0f}원 | **평균 저축률:** {(t_sav / (t_inc + t_add) * 100) if (t_inc + t_add) > 0 else 0:.1f}%")
@@ -245,7 +259,7 @@ elif menu == "🗓️ 월간 현금흐름 (시트)":
     st.subheader(f"🛒 {current_year}년 카테고리별 지출 항목")
     cat_keys = ["경조사", "생활비", "소비항목", "여행", "보험_세금", "자동차", "가구_기타"]
     edited_expenses = {}
-    exp_col_config = {"금액": st.column_config.NumberColumn(step=1000)} # 콤마 자동 적용
+    exp_col_config = {"금액": st.column_config.NumberColumn(step=1000)}
 
     cols1 = st.columns(4)
     for i in range(4):
@@ -263,9 +277,19 @@ elif menu == "🗓️ 월간 현금흐름 (시트)":
 
     any_c = False
     for key in cat_keys:
-        nl = [{"항목": str(r["항목"]), "금액": int(r["금액"]) if pd.notna(r["금액"]) else 0} for _, r in edited_expenses[key].dropna(subset=["항목"]).iterrows() if str(r["항목"]).strip()]
-        if data["spreadsheet"]["expenses"][key] != nl: data["spreadsheet"]["expenses"][key] = nl; any_c = True
-    if any_c: save_data(user, data); st.rerun()
+        nl = [{"항목": str(r["항목"]).strip(), "금액": int(r["금액"]) if pd.notna(r["금액"]) else 0} for _, r in edited_expenses[key].iterrows() if pd.notna(r["항목"]) and str(r["항목"]).strip() != ""]
+        if data["spreadsheet"]["expenses"][key] != nl: 
+            data["spreadsheet"]["expenses"][key] = nl
+            any_c = True
+            
+    # 🔥 에러 방지용 안전 저장
+    if any_c: 
+        save_data(user, data)
+        st.rerun()
+
+    # 🔥 에러 방지: Streamlit 네이티브 마크다운 색상 문법 적용 (:red[...])
+    grand_total_expense = sum([df["금액"].sum() for df in edited_expenses.values() if not df.empty])
+    st.markdown(f"### 🔴 총 지출 예상액 합계: :red[{grand_total_expense:,.0f} 원]")
 
 # ══════════════════════════════════════════
 # 3~5. 부동산, 현금, 주식
@@ -273,18 +297,34 @@ elif menu == "🗓️ 월간 현금흐름 (시트)":
 elif menu == "🏢 부동산":
     st.title("🏢 부동산 관리")
     st.info("💡 시세를 입력하고 엔터를 치면 천단위 콤마(,)가 자동으로 찍힙니다.")
-    df = pd.DataFrame(data["real_estate"]) if data["real_estate"] else pd.DataFrame(columns=["자산명", "현재 시세 (원)"])
-    edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key="re", column_config={"현재 시세 (원)": st.column_config.NumberColumn(step=10000000)})
-    new_data = [{"name": str(r["자산명"]), "current_price": int(r["현재 시세 (원)"]) if pd.notna(r["현재 시세 (원)"]) else 0} for _, r in edited_df.iterrows() if pd.notna(r["자산명"])]
-    if data["real_estate"] != new_data: data["real_estate"] = new_data; save_data(user, data); st.rerun()
+    
+    df = pd.DataFrame(data["real_estate"])
+    if not df.empty: df.columns = ["자산명", "현재 시세 (원)"]
+    else: df = pd.DataFrame(columns=["자산명", "현재 시세 (원)"])
+    
+    edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key="re", column_config={"현재 시세 (원)": st.column_config.NumberColumn(step=10000)})
+    
+    new_data = [{"name": str(r["자산명"]).strip(), "current_price": int(r["현재 시세 (원)"]) if pd.notna(r["현재 시세 (원)"]) else 0} for _, r in edited_df.iterrows() if pd.notna(r["자산명"]) and str(r["자산명"]).strip() != ""]
+    if data["real_estate"] != new_data: 
+        data["real_estate"] = new_data
+        save_data(user, data)
+        st.rerun()
 
 elif menu == "💵 현금":
     st.title("💵 현금 및 계좌 관리")
     st.info("💡 금액을 입력하고 엔터를 치면 천단위 콤마(,)가 자동으로 찍힙니다.")
-    df = pd.DataFrame(data["cash"]) if data["cash"] else pd.DataFrame(columns=["계좌명", "금액 (원)"])
+    
+    df = pd.DataFrame(data["cash"])
+    if not df.empty: df.columns = ["계좌명", "금액 (원)"]
+    else: df = pd.DataFrame(columns=["계좌명", "금액 (원)"])
+    
     edited_df = st.data_editor(df, num_rows="dynamic", use_container_width=True, key="ca", column_config={"금액 (원)": st.column_config.NumberColumn(step=100000)})
-    new_data = [{"name": str(r["계좌명"]), "amount": int(r["금액 (원)"]) if pd.notna(r["금액 (원)"]) else 0} for _, r in edited_df.iterrows() if pd.notna(r["계좌명"])]
-    if data["cash"] != new_data: data["cash"] = new_data; save_data(user, data); st.rerun()
+    
+    new_data = [{"name": str(r["계좌명"]).strip(), "amount": int(r["금액 (원)"]) if pd.notna(r["금액 (원)"]) else 0} for _, r in edited_df.iterrows() if pd.notna(r["계좌명"]) and str(r["계좌명"]).strip() != ""]
+    if data["cash"] != new_data: 
+        data["cash"] = new_data
+        save_data(user, data)
+        st.rerun()
 
 elif menu == "📈 주식":
     st.title("📈 주식 포트폴리오")
@@ -302,7 +342,10 @@ elif menu == "📈 주식":
             column_config={"평균단가": st.column_config.NumberColumn(format="%.2f"), "수익률(%)": st.column_config.NumberColumn(format="%.2f %%"), "평가액": st.column_config.NumberColumn(step=1000)}
         )
         new_stocks = [{"ticker": str(r["티커"]), "quantity": float(r["수량"]) if pd.notna(r["수량"]) else 0, "avg_price": float(r["평균단가"]) if pd.notna(r["평균단가"]) else 0} for _, r in edf.iterrows() if pd.notna(r["티커"])]
-        if data["stocks"] != new_stocks: data["stocks"] = new_stocks; save_data(user, data); st.rerun()
+        if data["stocks"] != new_stocks: 
+            data["stocks"] = new_stocks
+            save_data(user, data)
+            st.rerun()
 
     with tab2:
         m = st.radio("방식", ["검색", "직접입력"])
@@ -311,7 +354,10 @@ elif menu == "📈 주식":
             c1, c2 = st.columns(2)
             q, a = c1.number_input("수량", 1.0, step=1.0), c2.number_input("평균단가", 0.0, step=1000.0)
             if st.form_submit_button("포트폴리오에 추가"):
-                if t and t!="선택": data["stocks"].append({"ticker":t, "quantity":float(q), "avg_price":float(a)}); save_data(user, data); st.rerun()
+                if t and t!="선택": 
+                    data["stocks"].append({"ticker":t, "quantity":float(q), "avg_price":float(a)})
+                    save_data(user, data)
+                    st.rerun()
 
 # ══════════════════════════════════════════
 # 6. FIRE 시뮬레이터
@@ -326,7 +372,10 @@ elif menu == "🔥 FIRE 시뮬레이터":
     st.metric("📊 현재 평균 월 저축액 (시트 연동)", format_krw(avg_monthly_savings))
 
     goal = st.number_input("🎯 목표 은퇴 자산 (원)", value=data["settings"]["goal"], step=10000000)
-    if goal != data["settings"]["goal"]: data["settings"]["goal"] = goal; save_data(user, data); st.rerun()
+    if goal != data["settings"]["goal"]: 
+        data["settings"]["goal"] = goal
+        save_data(user, data)
+        st.rerun()
 
     if avg_monthly_savings <= 0:
         st.error("⚠️ 시트 메뉴에서 월 저축액을 먼저 입력해주세요!")
@@ -344,4 +393,5 @@ elif menu == "🔥 FIRE 시뮬레이터":
 elif menu == "⚙️ 설정":
     st.title("⚙️ 설정")
     if st.button("데이터 초기화 (주의!)", type="primary"):
-        os.remove(f"data/users/{user}.json"); st.rerun()
+        os.remove(f"data/users/{user}.json")
+        st.rerun()
