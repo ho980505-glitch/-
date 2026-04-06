@@ -83,12 +83,12 @@ ticker_to_name = {ticker: name.split(' (')[0][3:].strip() for name, ticker in st
 # 데이터 관리
 # ══════════════════════════════════════════
 def load_users():
-    os.makedirs("data", exist_ok=True)
-    if not os.path.exists("data/users.json"):
-        with open("data/users.json", "w", encoding="utf-8") as f: json.dump({"admin": "1234"}, f)
-        return {"admin": "1234"}
-    with open("data/users.json", "r", encoding="utf-8") as f: return json.load(f)
-
+    # 서버 꼬임 방지를 위해 파일 대신 코드에 아이디/비번을 직접 고정합니다.
+    return {
+        "admin": "1234",
+        "user1": "1234",    # user1 추가
+        "user2": "5678"     # user2 추가 (원하는대로 계속 줄을 늘려서 추가 가능합니다)
+    }
 def login():
     users = load_users()
     if "user" not in st.session_state: st.session_state.user = None
